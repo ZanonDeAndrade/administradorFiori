@@ -342,11 +342,17 @@ async function loadProductsFromGoogleSheets() {
             range: 'Produtos!A2:G',
         });
         products = (response.result.values || []).map(row => ({
-            id: parseInt(row[0]), name: row[1] || '', category: row[2] || '',
-            price: parseFloat(row[3]) || 0, status: row[4] || 'ativo',
-            description: row[5] || '', createdAt: row[6] || ''
+            id: parseInt(row[0]),
+            name: row[1] || '',
+            category: row[2] || '',
+            price: parseFloat(String(row[3] || '0').replace(',', '.')), // LINHA CORRIGIDA
+            status: row[4] || 'ativo',
+            description: row[5] || '',
+            createdAt: row[6] || ''
         })).filter(p => p && p.id);
-    } catch (err) { console.error("Erro ao carregar produtos:", err.result.error.message); }
+    } catch (err) {
+        console.error("Erro ao carregar produtos:", err.result ? err.result.error.message : err.message);
+    }
 }
 
 async function loadOrdersFromGoogleSheets() {
