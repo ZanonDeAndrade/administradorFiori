@@ -1,17 +1,18 @@
 // =================== CONFIGURAÇÃO OAuth 2.0 ===================
 const CLIENT_ID = '624067080991-tkdvandvm220tohqnd4c0bshhvbjhamh.apps.googleusercontent.com';
-const SPREADSHEET_ID = '1tdkCbWRyw8JyJIIkyTaJ0BA5x9ofIu6dpg4QPVw1hGc'; // Se você criou uma planilha nova, use o ID dela aqui.
+const SPREADSHEET_ID = '1tdkCbWRyw8JyJIIkyTaJ0BA5x9ofIu6dpg4QPVw1hGc'; // ID da sua planilha nova
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 
 // Variáveis Globais de Autenticação e Dados
 let tokenClient;
 let accessToken = null;
+let gapiInited = false;
 let products = [];
 let orders = [];
+let refreshInterval;
 
 // =================== LÓGICA DE AUTENTICAÇÃO E INICIALIZAÇÃO ===================
 
-// Funções chamadas pelos scripts do Google no HTML
 function gapiLoaded() {
     gapi.load('client', initializeGapiClient);
 }
@@ -20,9 +21,14 @@ async function initializeGapiClient() {
     await gapi.client.init({
         discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
-    // Habilita o botão de login quando a biblioteca estiver pronta
-    document.getElementById('loginBtn').disabled = false;
-    document.getElementById('loginBtn').textContent = 'Login com Google';
+    gapiInited = true;
+    
+    // Se um token foi recuperado da sessão, informe a biblioteca GAPI e carregue os dados.
+    if (accessToken) {
+        gapi.client.setToken({ access_token: accessToken });
+        toggleAuthUI(true);
+        loadInitialData();
+    }
 }
 
 function gisLoaded() {
@@ -30,14 +36,23 @@ function gisLoaded() {
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: (tokenResponse) => {
-            accessToken = tokenResponse.access_token;
-            toggleAuthUI(true);
-            loadInitialData();
+            if (tokenResponse && tokenResponse.access_token) {
+                accessToken = tokenResponse.access_token;
+                const expiresAt = Date.now() + (tokenResponse.expires_in * 1000);
+                sessionStorage.setItem('googleOauthSession', JSON.stringify({
+                    token: accessToken,
+                    expiresAt: expiresAt
+                }));
+                toggleAuthUI(true);
+                loadInitialData();
+            }
         },
     });
+    // Habilita o botão de login quando ambas as bibliotecas estiverem prontas
+    document.getElementById('loginBtn').disabled = false;
+    document.getElementById('loginBtn').textContent = 'Login com Google';
 }
 
-// Funções de clique dos botões de Login/Logout
 function handleAuthClick() {
     if (accessToken === null) {
         tokenClient.requestAccessToken({prompt: 'consent'});
@@ -48,35 +63,47 @@ function handleSignoutClick() {
     if (accessToken) {
         google.accounts.oauth2.revoke(accessToken, () => {
             accessToken = null;
+            sessionStorage.removeItem('googleOauthSession');
             toggleAuthUI(false);
             products = [];
             orders = [];
             renderProducts();
             renderOrders();
+            if (refreshInterval) clearInterval(refreshInterval);
             alert("Você foi desconectado.");
         });
     }
 }
 
-// Controla a visibilidade dos elementos da UI baseados no estado de login
 function toggleAuthUI(isLoggedIn) {
     document.getElementById('loginBtn').style.display = isLoggedIn ? 'none' : 'block';
     document.getElementById('logoutBtn').style.display = isLoggedIn ? 'block' : 'none';
     document.querySelector('.main-content').style.display = isLoggedIn ? 'block' : 'none';
 }
 
-// Carrega os dados da planilha após o login bem-sucedido
+function checkSessionOnLoad() {
+    const session = sessionStorage.getItem('googleOauthSession');
+    if (session) {
+        const sessionData = JSON.parse(session);
+        if (sessionData.expiresAt > Date.now() + (5 * 60 * 1000)) {
+            accessToken = sessionData.token;
+        } else {
+            sessionStorage.removeItem('googleOauthSession');
+        }
+    }
+}
+
 async function loadInitialData() {
+    if(!gapiInited) return; // Garante que a GAPI está pronta
     await loadProductsFromGoogleSheets();
     await loadOrdersFromGoogleSheets();
     renderProducts();
     renderOrders();
     updateStats();
-    // Inicia o auto-refresh somente após o login
-    setInterval(refreshOrders, 30000);
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(refreshOrders, 30000);
 }
 
-// Atualiza os pedidos periodicamente
 async function refreshOrders() {
     if (!accessToken) return;
     await loadOrdersFromGoogleSheets();
@@ -84,12 +111,9 @@ async function refreshOrders() {
     updateStats();
 }
 
-// Inicialização principal do aplicativo
 document.addEventListener('DOMContentLoaded', function() {
-    // Esconde o conteúdo principal até o login ser feito
-    document.querySelector('.main-content').style.display = 'none';
-    
-    // Adiciona os event listeners aos formulários e botões
+    checkSessionOnLoad();
+
     document.getElementById('productForm').addEventListener('submit', addProduct);
     document.getElementById('searchProducts').addEventListener('input', filterProducts);
     document.getElementById('filterCategory').addEventListener('change', filterProducts);
@@ -145,7 +169,15 @@ function editProduct(id) {
 }
 
 async function deleteProduct(id) {
-    if (confirm('Deseja realmente excluir este produto?')) {
+    const productToDelete = products.find(p => p.id === id);
+    if (!productToDelete) return;
+
+    const confirmed = await showCustomConfirm(
+        'Confirmar Exclusão', 
+        `Deseja realmente excluir o produto "${productToDelete.name}"? Esta ação não pode ser desfeita.`
+    );
+
+    if (confirmed) {
         const success = await deleteFromGoogleSheets('Produtos', id);
         if (success) {
             products = products.filter(p => p.id !== id);
@@ -171,7 +203,7 @@ async function toggleProductStatus(id) {
             renderProducts();
             showNotification('Status do produto atualizado!', 'success');
         } else {
-            product.status = product.status === 'ativo' ? 'inativo' : 'ativo'; // Reverte em caso de falha
+            product.status = product.status === 'ativo' ? 'inativo' : 'ativo';
             renderProducts();
             showNotification('Erro ao atualizar status no Google Sheets.', 'error');
         }
@@ -198,7 +230,7 @@ async function updateOrderStatus(orderId, newStatus) {
             updateStats();
             showNotification('Status do pedido atualizado!', 'success');
         } else {
-            order.status = originalStatus; // Reverte em caso de falha
+            order.status = originalStatus;
             renderOrders();
             showNotification('Erro ao atualizar status no Google Sheets.', 'error');
         }
@@ -223,10 +255,7 @@ async function findRowById(sheetName, id) {
             }
         }
         return -1;
-    } catch (err) {
-        console.error("Erro ao procurar linha por ID:", err);
-        return -1;
-    }
+    } catch (err) { console.error("Erro ao procurar linha por ID:", err); return -1; }
 }
 
 async function saveToGoogleSheets(sheetName, dataRow) {
@@ -391,7 +420,7 @@ function renderOrders() {
                     <div class="order-time">${formatDate(order.createdAt)}</div>
                     <div class="order-customer">Cliente: ${order.customer || 'Não informado'}</div>
                 </div>
-                <div class="order-status status-${order.status}">${getStatusName(order.status)}</div>
+                <div class="order-status status-${getStatusName(order.status)}">${getStatusName(order.status)}</div>
             </div>
             <div class="order-items">
                 ${order.items.map(item => `<div class="order-item"><span>${item.quantity}x ${item.name}</span><span>R$ ${(item.price * item.quantity).toFixed(2)}</span></div>`).join('')}
@@ -414,8 +443,7 @@ function filterProducts() {
         const matchesCategory = !categoryFilter || product.category === categoryFilter;
         return matchesSearch && matchesCategory;
     });
-    // Para evitar bugs, vamos renderizar uma cópia filtrada sem alterar o array original
-    renderFilteredProducts(filtered);
+    renderFiltered(filtered, 'products');
 }
 
 function filterOrders() {
@@ -426,24 +454,22 @@ function filterOrders() {
         const matchesDate = !dateFilter || (order.createdAt && order.createdAt.startsWith(dateFilter));
         return matchesStatus && matchesDate;
     });
-    renderFilteredOrders(filtered);
+    renderFiltered(filtered, 'orders');
 }
 
-// Funções de renderização separadas para os filtros
-function renderFilteredProducts(filteredData) {
-    const originalProducts = products;
-    products = filteredData;
-    renderProducts();
-    products = originalProducts;
+function renderFiltered(data, type) {
+    if (type === 'products') {
+        const originalProducts = products;
+        products = data;
+        renderProducts();
+        products = originalProducts;
+    } else {
+        const originalOrders = orders;
+        orders = data;
+        renderOrders();
+        orders = originalOrders;
+    }
 }
-
-function renderFilteredOrders(filteredData) {
-    const originalOrders = orders;
-    orders = filteredData;
-    renderOrders();
-    orders = originalOrders;
-}
-
 
 function updateStats() {
     const today = new Date().toISOString().split('T')[0];
@@ -480,6 +506,31 @@ function showNotification(message, type = 'info') {
     notification.textContent = message;
     document.body.appendChild(notification);
     setTimeout(() => { notification.remove(); }, 3000);
+}
+
+function showCustomConfirm(title, message) {
+    const confirmModal = document.getElementById('customConfirm');
+    const titleEl = document.getElementById('confirmTitle');
+    const messageEl = document.getElementById('confirmMessage');
+    const okBtn = document.getElementById('confirmOk');
+    const cancelBtn = document.getElementById('confirmCancel');
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+
+    confirmModal.classList.add('visible');
+
+    return new Promise((resolve) => {
+        okBtn.onclick = () => {
+            confirmModal.classList.remove('visible');
+            resolve(true);
+        };
+
+        cancelBtn.onclick = () => {
+            confirmModal.classList.remove('visible');
+            resolve(false);
+        };
+    });
 }
 
 const style = document.createElement('style');

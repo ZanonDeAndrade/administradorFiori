@@ -120,7 +120,19 @@
     
                 <div id="ordersList"></div>
             </div>
-        </div> </div>
+        </div> 
+    </div>
+
+    <div id="customConfirm" class="modal-overlay">
+        <div class="modal-box">
+            <h3 id="confirmTitle">Confirmar Ação</h3>
+            <p id="confirmMessage">Você tem certeza?</p>
+            <div class="modal-actions">
+                <button id="confirmCancel" class="btn btn-secondary">Cancelar</button>
+                <button id="confirmOk" class="btn btn-danger">Sim, excluir</button>
+            </div>
+        </div>
+    </div>
 
     <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
     <script src="script.js"></script>
