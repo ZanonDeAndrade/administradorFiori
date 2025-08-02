@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Admin - Restaurante</title>
+    <link rel="stylesheet" href="styles.css">
+    
+    <script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍽️ Painel Administrativo</h1>
+            <p>Gerencie produtos e acompanhe pedidos em tempo real</p>
+        </div>
+
+        <div class="auth-section">
+            <button id="loginBtn" onclick="handleAuthClick()" disabled>Carregando... Login com Google</button>
+            <button id="logoutBtn" onclick="handleSignoutClick()" style="display: none;">Logout</button>
+        </div>
+        
+        <div class="main-content" style="display: none;">
+            <div class="tabs">
+                <button class="tab-button active" onclick="showTab('products')">Produtos</button>
+                <button class="tab-button" onclick="showTab('orders')">Pedidos</button>
+            </div>
+    
+            <div id="products" class="tab-content active">
+                <h2>Gerenciar Produtos</h2>
+                
+                <div class="form-section">
+                    <h3>Adicionar Novo Produto</h3>
+                    <form id="productForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="productName">Nome do Produto</label>
+                                <input type="text" id="productName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="productCategory">Categoria</label>
+                                <select id="productCategory" required>
+                                    <option value="">Selecione uma categoria</option>
+                                    <option value="entradas">Entradas</option>
+                                    <option value="pratos-principais">Pratos Principais</option>
+                                    <option value="sobremesas">Sobremesas</option>
+                                    <option value="bebidas">Bebidas</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="productPrice">Preço (R$)</label>
+                                <input type="number" id="productPrice" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="productStatus">Status</label>
+                                <select id="productStatus" required>
+                                    <option value="ativo">Ativo</option>
+                                    <option value="inativo">Inativo</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="productDescription">Descrição</label>
+                            <textarea id="productDescription" rows="3"></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Adicionar Produto</button>
+                    </form>
+                </div>
+    
+                <div class="products-list">
+                    <h3>Produtos Cadastrados</h3>
+                    <div class="search-filter">
+                        <input type="text" id="searchProducts" placeholder="Buscar produtos...">
+                        <select id="filterCategory">
+                            <option value="">Todas as categorias</option>
+                            <option value="entradas">Entradas</option>
+                            <option value="pratos-principais">Pratos Principais</option>
+                            <option value="sobremesas">Sobremesas</option>
+                            <option value="bebidas">Bebidas</option>
+                        </select>
+                    </div>
+                    <div id="productsTable"></div>
+                </div>
+            </div>
+    
+            <div id="orders" class="tab-content">
+                <h2>Pedidos Recebidos</h2>
+                
+                <div class="orders-stats">
+                    <div class="stat-card">
+                        <h3>Pedidos Hoje</h3>
+                        <p class="stat-number" id="ordersToday">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Pendentes</h3>
+                        <p class="stat-number" id="ordersPending">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total do Dia</h3>
+                        <p class="stat-number" id="totalToday">R$ 0,00</p>
+                    </div>
+                </div>
+    
+                <div class="orders-filter">
+                    <select id="statusFilter">
+                        <option value="">Todos os status</option>
+                        <option value="pendente">Pendente</option>
+                        <option value="preparando">Preparando</option>
+                        <option value="pronto">Pronto</option>
+                        <option value="entregue">Entregue</option>
+                    </select>
+                    <input type="date" id="dateFilter">
+                    <button onclick="refreshOrders()" class="btn btn-secondary">Atualizar</button>
+                </div>
+    
+                <div id="ordersList"></div>
+            </div>
+        </div> </div>
+
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script src="script.js"></script>
+</body>
+</html>
