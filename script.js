@@ -23,7 +23,6 @@ async function initializeGapiClient() {
     });
     gapiInited = true;
     
-    // Se um token foi recuperado da sessão, informe a biblioteca GAPI e carregue os dados.
     if (accessToken) {
         gapi.client.setToken({ access_token: accessToken });
         toggleAuthUI(true);
@@ -48,7 +47,6 @@ function gisLoaded() {
             }
         },
     });
-    // Habilita o botão de login quando ambas as bibliotecas estiverem prontas
     document.getElementById('loginBtn').disabled = false;
     document.getElementById('loginBtn').textContent = 'Login com Google';
 }
@@ -94,7 +92,7 @@ function checkSessionOnLoad() {
 }
 
 async function loadInitialData() {
-    if(!gapiInited) return; // Garante que a GAPI está pronta
+    if(!gapiInited) return;
     await loadProductsFromGoogleSheets();
     await loadOrdersFromGoogleSheets();
     renderProducts();
@@ -115,10 +113,19 @@ document.addEventListener('DOMContentLoaded', function() {
     checkSessionOnLoad();
 
     document.getElementById('productForm').addEventListener('submit', addProduct);
+    // REMOVIDO: Event listener do formulário de pedido
     document.getElementById('searchProducts').addEventListener('input', filterProducts);
     document.getElementById('filterCategory').addEventListener('change', filterProducts);
     document.getElementById('statusFilter').addEventListener('change', filterOrders);
     document.getElementById('dateFilter').addEventListener('change', filterOrders);
+
+    const deliveryTypeSelect = document.getElementById('orderDeliveryType');
+    const addressField = document.getElementById('addressField');
+    if(deliveryTypeSelect && addressField) {
+        deliveryTypeSelect.addEventListener('change', function() {
+            addressField.style.display = this.value === 'retirada' || this.value === 'entrega' ? 'block' : 'none';
+        });
+    }
 });
 
 
@@ -220,8 +227,16 @@ async function updateOrderStatus(orderId, newStatus) {
         order.updatedAt = new Date().toISOString();
 
         const orderRow = [
-            order.id, order.customer || '', JSON.stringify(order.items),
-            order.total, order.status, order.createdAt, order.updatedAt
+            order.id,
+            order.customer || '',
+            order.phone || '',
+            order.deliveryType || '',
+            order.address || '',
+            JSON.stringify(order.items),
+            order.total,
+            order.status,
+            order.createdAt,
+            order.updatedAt
         ];
         
         const success = await updateInGoogleSheets('Pedidos', order.id, orderRow);
@@ -345,7 +360,7 @@ async function loadProductsFromGoogleSheets() {
             id: parseInt(row[0]),
             name: row[1] || '',
             category: row[2] || '',
-            price: parseFloat(String(row[3] || '0').replace(',', '.')), // LINHA CORRIGIDA
+            price: parseFloat(String(row[3] || '0').replace(',', '.')),
             status: row[4] || 'ativo',
             description: row[5] || '',
             createdAt: row[6] || ''
@@ -360,18 +375,25 @@ async function loadOrdersFromGoogleSheets() {
     try {
         const response = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
-            range: 'Pedidos!A2:G',
+            range: 'Pedidos!A2:J',
         });
         orders = (response.result.values || []).map(row => {
             try {
                 return {
-                    id: parseInt(row[0]), customer: row[1] || '',
-                    items: JSON.parse(row[2] || '[]'), total: parseFloat(row[3]) || 0,
-                    status: row[4] || 'pendente', createdAt: row[5] || '', updatedAt: row[6] || ''
+                    id: parseInt(row[0]),
+                    customer: row[1] || '',
+                    phone: row[2] || '',
+                    deliveryType: row[3] || '',
+                    address: row[4] || '',
+                    items: JSON.parse(row[5] || '[]'),
+                    total: parseFloat(String(row[6] || '0').replace(',', '.')),
+                    status: row[7] || 'pendente',
+                    createdAt: row[8] || '',
+                    updatedAt: row[9] || ''
                 }
-            } catch (e) { return null; }
+            } catch (e) { console.error('Erro ao processar linha do pedido:', row, e); return null; }
         }).filter(o => o && o.id);
-    } catch (err) { console.error("Erro ao carregar pedidos:", err.result.error.message); }
+    } catch (err) { console.error("Erro ao carregar pedidos:", err.result ? err.result.error.message : err.message); }
 }
 
 // =================== FUNÇÕES DE UI (RENDERIZAÇÃO, FILTROS, ETC.) ===================
@@ -428,8 +450,13 @@ function renderOrders() {
                 </div>
                 <div class="order-status status-${getStatusName(order.status)}">${getStatusName(order.status)}</div>
             </div>
+             <div class="order-details">
+                <p><strong>Telefone:</strong> ${order.phone || 'Não informado'}</p>
+                <p><strong>Entrega:</strong> ${getDeliveryTypeName(order.deliveryType)}</p>
+                ${(order.address && order.deliveryType !== 'restaurante') ? `<p><strong>Endereço:</strong> ${order.address}</p>` : ''}
+            </div>
             <div class="order-items">
-                ${order.items.map(item => `<div class="order-item"><span>${item.quantity}x ${item.name}</span><span>R$ ${(item.price * item.quantity).toFixed(2)}</span></div>`).join('')}
+                ${(order.items || []).map(item => `<div class="order-item"><span>${item.quantity}x ${item.name}</span><span>R$ ${(item.price * item.quantity).toFixed(2)}</span></div>`).join('')}
             </div>
             <div class="order-total">Total: R$ ${order.total ? order.total.toFixed(2) : '0.00'}</div>
             <div style="margin-top: 15px;">
@@ -449,7 +476,7 @@ function filterProducts() {
         const matchesCategory = !categoryFilter || product.category === categoryFilter;
         return matchesSearch && matchesCategory;
     });
-    renderFiltered(filtered, 'products');
+    renderFilteredProducts(filtered);
 }
 
 function filterOrders() {
@@ -460,21 +487,21 @@ function filterOrders() {
         const matchesDate = !dateFilter || (order.createdAt && order.createdAt.startsWith(dateFilter));
         return matchesStatus && matchesDate;
     });
-    renderFiltered(filtered, 'orders');
+    renderFilteredOrders(filtered);
 }
 
-function renderFiltered(data, type) {
-    if (type === 'products') {
-        const originalProducts = products;
-        products = data;
-        renderProducts();
-        products = originalProducts;
-    } else {
-        const originalOrders = orders;
-        orders = data;
-        renderOrders();
-        orders = originalOrders;
-    }
+function renderFilteredProducts(filteredData) {
+    const originalProducts = products;
+    products = filteredData;
+    renderProducts();
+    products = originalProducts;
+}
+
+function renderFilteredOrders(filteredData) {
+    const originalOrders = orders;
+    orders = filteredData;
+    renderOrders();
+    orders = originalOrders;
 }
 
 function updateStats() {
@@ -496,6 +523,15 @@ function getCategoryName(category) {
 function getStatusName(status) {
     const statuses = { 'pendente': 'Pendente', 'preparando': 'Preparando', 'pronto': 'Pronto', 'entregue': 'Entregue' };
     return statuses[status] || status;
+}
+
+function getDeliveryTypeName(type) {
+    const types = {
+        'restaurante': 'Comer no Restaurante',
+        'retirada': 'Levar para Casa (Retirada)',
+        'entrega': 'Entrega (Delivery)'
+    };
+    return types[type] || type;
 }
 
 function formatDate(dateString) {
